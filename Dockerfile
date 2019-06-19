@@ -48,7 +48,9 @@ RUN	if [[ "${VAULT_VERSION}" != "none" ]]; then \
 		rm -fr vault.zip; \
 	fi
 
-COPY	ovpnd	/usr/local/bin/ovpnd
+ADD	https://raw.githubusercontent.com/nexus166/ovpnd/master/ovpnd /usr/local/bin/ovpnd
+RUN	chmod -v a+rx /usr/local/bin/ovpnd
+#COPY	ovpnd	/usr/local/bin/ovpnd
 
 USER	"${USR}"
 
