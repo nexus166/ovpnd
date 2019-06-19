@@ -22,7 +22,7 @@ RUN	if [[ "${VAULT_VERSION}" != "none" ]]; then \
 		exit 0; \
 	fi; \
 	case "$(apk --print-arch)" in \
-		armhf) ARCH='arm' ;; \
+		arm*) ARCH='arm' ;; \
                 aarch64) ARCH='arm64' ;; \
                 x86_64) ARCH='amd64' ;; \
                 x86) ARCH='386' ;; \
@@ -32,6 +32,9 @@ RUN	if [[ "${VAULT_VERSION}" != "none" ]]; then \
 		apk add --update --upgrade --no-cache --virtual .deps \
 			binutils git; \
 		export GOPATH="$(mktemp -d)"; \
+                case "${ARCH}" in \
+                        arm*) ARCH=armv6l;; \
+                esac; \
 		wget -qO- "https://dl.google.com/go/go${GO_VERSION}.$(uname -s | tr '[[:upper:]]' '[[:lower:]]')-${ARCH}.tar.gz" | tar zxf - -C /usr/local; \
 		/usr/local/go/bin/go get -v github.com/hashicorp/vault; \
 		mv -v "${GOPATH}/bin/vault" /usr/local/bin/vault; \

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -xv
 set -euo pipefail
 
 _V4="$(command -v iptables)"
