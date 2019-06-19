@@ -131,4 +131,5 @@ _VPNCONF="${_VPN_CONFIG:-$(mktemp)}"
 (sleep 5; rm -fvr "${_VPNCONF}") & 
 
 # start vpn client
-sudo "${_OVPN}" --config "${_VPNCONF}" --pull-filter ignore redirect-gateway
+sudo "${_OVPN}" --config "${_VPNCONF}"
+#sudo "${_OVPN}" --config "${_VPNCONF}" --pull-filter ignore redirect-gateway
