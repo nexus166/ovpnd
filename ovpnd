@@ -7,43 +7,50 @@ _OVPN="$(command -v openvpn)"
 
 set +u
 
-while getopts c:C:m:i:v: option; do
-	case "${option}" in
-		i) NET_IFACE="${OPTARG}";;
-		c) VPN_CONFIG="${OPTARG}";;
-		C) VAULT_OVPN_PATH="${OPTARG}";;
-		m) RUN_MODE="${OPTARG}";;
-		v) VPN_IFACE="${OPTARG}";;
-		*) exit 127;;
-	esac
-done
-
 # defaults
 RUN_MODE="${RUN_MODE:-client}"
-_NET_IFACE="${NET_IFACE:-eth0}"
-_VPN_IFACE="${VPN_IFACE:-tun0}"
+NET_IFACE="${NET_IFACE:-eth0}"
+VPN_IFACE="${VPN_IFACE:-tun0}"
+
+while getopts "c:C:m:i:v:" option; do
+	case "${option}" in
+		i) NET_IFACE="${OPTARG}" ;;
+		c) VPN_CONFIG="${OPTARG}" ;;
+		C) VAULT_OVPN_PATH="${OPTARG}" ;;
+		m) RUN_MODE="${OPTARG}" ;;
+		v) VPN_IFACE="${OPTARG}" ;;
+		*) exit 127 ;;
+	esac
+done
+shift $((OPTIND - 1))
 
 # funcs
-_v4() { printf 'IPv4\t%s\n' "$(echo ${@})" && sudo "${_V4}" ${@}; echo; }
-_v6() { printf 'IPv6\t%s\n' "$(echo ${@})" && sudo "${_V6}" ${@}; echo; }
+_v4() {
+	printf 'IPv4\t%s\n' "$(echo ${@})" && sudo "${_V4}" ${@}
+	echo
+}
+_v6() {
+	printf 'IPv6\t%s\n' "$(echo ${@})" && sudo "${_V6}" ${@}
+	echo
+}
 _v4_v6() { _v4 ${@} && _v6 ${@}; }
 
 vault_vpnconf() {
-	_TMP="$(mktemp)";
-	if [[ ! -z "${VAULT_TOKEN}" ]] && [[ ! -z "${VAULT_OVPN_PATH}" ]]; then
-		vault read -field "$(basename ${VAULT_OVPN_PATH})" "${VAULT_OVPN_PATH}" > "${_TMP}";
-		printf '%s' "${_TMP}";
+	_TMP="$(mktemp)"
+	if [[ -n ${VAULT_TOKEN} ]] && [[ -n ${VAULT_OVPN_PATH} ]]; then
+		vault read -field "$(basename ${VAULT_OVPN_PATH})" "${VAULT_OVPN_PATH}" >"${_TMP}"
+		printf '%s' "${_TMP}"
 	else
-		echo "Missing VAULT_TOKEN or VAULT_OVPN_PATH or vault bin" >/dev/stderr;
+		echo "Missing VAULT_TOKEN or VAULT_OVPN_PATH or vault bin" >/dev/stderr
 		return 2
 	fi
 }
 
 _reset() {
 	case "${1}" in
-		*4*) for _args in "-F" "-Z" "-t nat -F" "-t nat -Z"; do _v4 ${_args}; done;;
-		*6*) for _args in "-F" "-Z" "-t nat -F" "-t nat -Z"; do _v6 ${_args}; done;;
-		all) _reset 4 && _reset 6;;
+		*4*) for _args in "-F" "-Z" "-t nat -F" "-t nat -Z"; do _v4 ${_args}; done ;;
+		*6*) for _args in "-F" "-Z" "-t nat -F" "-t nat -Z"; do _v6 ${_args}; done ;;
+		all) _reset 4 && _reset 6 ;;
 	esac
 }
 
@@ -65,40 +72,40 @@ _header 50
 ## FORWARDING: allow from eth0 to vpn and MASQ IPs (see below modes and about net.ipv4.ip_forward)
 _v4_v6 -P FORWARD DROP
 
-## OUTPUT: allow outgoing ipv4 but block ipv6
+## OUTPUT: allow outgoing ipv4 but REJECT attempts to use ipv6
 _v4 -P OUTPUT ACCEPT
-_v6 -P OUTPUT DROP
+_v6 -P OUTPUT REJECT
 _header 50
 
 # MODES
 case "${RUN_MODE}" in
-        all_to_all)
+	all_to_all)
 		# assume both internal network and vpn are trusted and just act as a non-MASQing gateway
-                _v4 -A INPUT -i "${_VPN_IFACE}" -j ACCEPT
-                _v4 -A FORWARD -i "${_NET_IFACE}" -o "${_VPN_IFACE}" -j ACCEPT
-                _v4 -A FORWARD -i "${_VPN_IFACE}" -o "${_NET_IFACE}" -j ACCEPT
-        ;;
+		_v4 -A INPUT -i "${_VPN_IFACE}" -j ACCEPT
+		_v4 -A FORWARD -i "${_NET_IFACE}" -o "${_VPN_IFACE}" -j ACCEPT
+		_v4 -A FORWARD -i "${_VPN_IFACE}" -o "${_NET_IFACE}" -j ACCEPT
+		;;
 	client)
 		# we only want to reach things from this container
 		:
-	;;
+		;;
 	src_to_vpn)
 		# forward traffic from local network to vpn
 		_v4 -A FORWARD -i "${_NET_IFACE}" -o "${_VPN_IFACE}" -j ACCEPT
 		_v4 -A FORWARD -i "${_VPN_IFACE}" -o "${_NET_IFACE}" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 		_v4 -t nat -A POSTROUTING -o "${_VPN_IFACE}" -j MASQUERADE
-	;;
+		;;
 	vpn_to_src)
 		# reverse mode, anything in the vpn net can reach this container + what is on the other side
 		_v4 -A INPUT -i "${_VPN_IFACE}" -j ACCEPT
 		_v4 -A FORWARD -i "${_VPN_IFACE}" -o "${_NET_IFACE}" -j ACCEPT
 		_v4 -A FORWARD -i "${_NET_IFACE}" -o "${_VPN_IFACE}" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 		_v4 -t nat -A POSTROUTING -o "${_NET_IFACE}" -j MASQUERADE
-	;;
+		;;
 	server)
 		# we have services to expose to the vpn
 		_v4 -A INPUT -i "${_VPN_IFACE}" -j ACCEPT
-	;;
+		;;
 esac
 _header 50
 
@@ -115,21 +122,32 @@ case "${RUN_MODE}" in
 		# docker run --privileged -ti --rm -v /docker-data/ovpnd.ovpn:/tmp/ovpnd.ovpn test -c /tmp/ovpnd.ovpn
 		# AND
 		sysctl -w net.ipv4.ip_forward=1
-	;;
+		;;
 esac
 
 ## launch vpn daemon
-_VPNCONF="${_VPN_CONFIG:-$(mktemp)}"
+_VPNCONF="${VPN_CONFIG:-$(mktemp)}"
 
 # fetch ovpn config from vault if we have a path to read (and vault_addr + vault_token)
-[[ ! -z "${VAULT_OVPN_PATH}" ]] && mv -v "$(vault_vpnconf)" "${_VPNCONF}"
+[[ -n ${VAULT_OVPN_PATH} ]] && mv -v "$(vault_vpnconf)" "${_VPNCONF}"
 
 # background stats
-(sleep 10; until [[ -z "$(ip a | grep ${_VPN_IFACE})" ]]; do ip a; ip r; sleep 900; done) &
+(
+	sleep 10
+	until [[ -z "$(ip a | grep ${_VPN_IFACE})" ]]; do
+		ip a
+		ip r
+		sleep 900
+	done
+) &
 
 # background cleanup
-(sleep 5; rm -fvr "${_VPNCONF}") & 
+(
+	sleep 5
+	rm -fvr "${_VPNCONF}"
+) &
 
 # start vpn client
-sudo "${_OVPN}" --config "${_VPNCONF}"
+sudo "${_OVPN}" --config "${_VPNCONF}" &
+eval ${@:-"tail -f /dev/null"}
 #sudo "${_OVPN}" --config "${_VPNCONF}" --pull-filter ignore redirect-gateway
